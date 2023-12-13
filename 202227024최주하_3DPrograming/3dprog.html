@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  canvas {
+    border: 1px solid #000;
+  }
+  #inspectorbg {
+    position: absolute;
+    left: 811px;
+    top: 8px;
+    width: 300px;
+    height: 600px;
+    background-color: lightgray;
+    border: 1px solid black;
+  }
+  #undo
+  {
+    position: absolute;
+    left: 20px;
+    top: 300px;
+  }
+  #redo
+  {
+    position: absolute;
+    left: 80px;
+    top: 300px;
+  }
+  p
+  {
+    padding: 0px;
+    margin: 0px;
+    font-size: 15px;
+  }
+  #draw
+  {
+    position: absolute;
+    left: 30px;
+    top: 250px;
+  }
+</style>
+</head>
+<body>
+<canvas id="myCanvas" width="800" height="600"></canvas>
+<div id="inspectorbg">
+  <p>Position X</p>
+  <input type="text" id="PositionX">
+  <p>Position Y</p>
+  <input type="text" id="PositionY">
+  <p>Rotation</p>
+  <input type="text" id="RotationY">
+  <p>Scale X</p>
+  <input type="text" id="ScaleX">
+  <p>Scale Y</p>
+  <input type="text" id="ScaleY">
+  <button id="draw">
+    Draw Heart
+  </button>
+  <button id="undo">
+    Undo
+  </button>
+  <button id="redo">
+    Redo
+  </button>
+</div>
+<script>
+
+var drawing = false;
+var isdraw = false;
+const canvas = document.getElementById("myCanvas");
+      const context = canvas.getContext("2d");
+      
+      var PositionX = 300 ;
+      var PositionY = 300 ;
+      var ScaleX = 1;
+      var ScaleY  = 1;
+      var Gakdo = 0;
+      
+      var isDragging= false;
+      var HandleRadius= 5;
+      var clickedHandle= "";
+      
+      var rectwidth =100;
+      var rectheight =100;
+
+      var rectLTX;
+      var rectLTY;
+
+      var rectRTX;
+      var rectRTY;
+
+      var rectLDX;
+      var rectLDY;
+
+      var rectRDX;
+      var rectRDY;
+      
+      var anglerectX;
+      var anglerectY;
+      var anglerectXY;
+
+    var HeartXY2 = [
+        [0],
+        [0],
+        [1]
+    ];
+
+    var rectXY =[
+        [0],
+        [0],
+        [1]
+      ]
+
+
+
+    var rect = [
+      [ -(rectwidth/2), -8 - rectheight/2], [rectwidth/2, (-8) - rectheight/2], [rectwidth/2, (-8)+rectheight/2], [-rectwidth/2, (-8)+rectheight/2],
+      [ -(rectwidth/2), -8 - rectheight/2]
+    ];
+
+      var PosX = document.getElementById("PositionX");
+      var PosY = document.getElementById("PositionY");
+
+      var Rot = document.getElementById("RotationY");
+
+      var ScaX = document.getElementById("ScaleX");
+      var ScaY = document.getElementById("ScaleY");
+
+      PosX.addEventListener("input", function() {
+        PositionX = PosX.value;
+        
+  saveCanvasState()
+        draw(); 
+      });
+      PosY.addEventListener("input", function() {
+        PositionY = PosY.value;
+        
+  saveCanvasState()
+        draw(); 
+      });
+
+      Rot.addEventListener("input", function() {
+        Gakdo = Rot.value;
+        
+  saveCanvasState()
+        draw(); 
+      });
+      
+      ScaX.addEventListener("input", function() {
+        ScaleX = ScaX.value;
+        
+  saveCanvasState()
+        draw(); 
+      });
+      ScaY.addEventListener("input", function() {
+        ScaleY = ScaY.value;
+        
+  saveCanvasState()
+        draw(); 
+      });
+  
+      document.getElementById("redo").addEventListener("click", redo);
+      document.getElementById("undo").addEventListener("click", undo);
+
+
+function hwMatrixMultiply2(matrixA, B) {
+    const result = [
+            [matrixA[0][0] * B[0][0] + matrixA[0][1] * B[1][0] + matrixA[0][2] * B[2][0]
+          ],
+          [matrixA[1][0] * B[0][0] + matrixA[1][1] * B[1][0] + matrixA[1][2] * B[2][0]
+        ],
+        [matrixA[2][0] * B[0][0] + matrixA[2][1] * B[1][0] + matrixA[2][2] * B[2][0]
+      ]
+    ];
+    
+    return result;
+  }
+  function hwTranslateMatrix(tx, ty) {
+    return [
+      [1, 0, tx],
+      [0, 1, ty],
+      [0, 0, 1]
+    ];
+  }
+  
+  function hwScaleMatrix(sx, sy) {
+    return [
+      [sx, 0, 0],
+          [0, sy, 0],
+          [0, 0, 1]
+        ];
+      }
+  
+  function hwRotationMatrix(angle) {
+    const ro =angle*(6.28/360);
+    const cos = Math.cos(ro);
+    const sin = Math.sin(ro);
+    return [
+      [cos, -sin, 0],
+      [sin, cos, 0],
+      [0,  0,  1]
+    ];
+  }
+
+  function isPointInRect(mouseX, mouseY, rect) {
+  const [x1, y1, x2, y2, x3, y3, x4, y4] = rect;
+  const isInside =
+    isPointInTriangle(mouseX, mouseY, x1, y1, x2, y2, x3, y3) ||
+    isPointInTriangle(mouseX, mouseY, x3, y3, x4, y4, x1, y1);
+  return isInside;
+}
+function isPointInTriangle(mouseX, mouseY, x1, y1, x2, y2, x3, y3) {
+  const sign1 = (mouseX - x1) * (y2 - y1) - (x2 - x1) * (mouseY - y1) >= 0;
+  const sign2 = (mouseX - x2) * (y3 - y2) - (x3 - x2) * (mouseY - y2) >= 0;
+  const sign3 = (mouseX - x3) * (y1 - y3) - (x1 - x3) * (mouseY - y3) >= 0;
+  return sign1 === sign2 && sign2 === sign3;
+}
+
+function draw() {
+  
+  context.clearRect(0, 0, canvas.width, canvas.height);  
+
+  context.beginPath();
+  context.fillStyle = "rgba(0,0,0,0)";
+  for (let i = 0; i < 5; i++) {
+    let x = rect[i][0];
+    let y = rect[i][1];
+    rectXY =[[x],[y],[1]]
+    
+    rectXY=hwMatrixMultiply2(hwScaleMatrix(ScaleX,ScaleY),rectXY);
+    rectXY=hwMatrixMultiply2(hwRotationMatrix(Gakdo),rectXY);
+    rectXY=hwMatrixMultiply2(hwTranslateMatrix(PositionX,PositionY),rectXY);
+    context.lineTo(rectXY[0][0], rectXY[1][0]);
+
+    context.stroke();
+    context.fill();
+    
+    if(i==0) {
+      rectLTX = rectXY[0][0];
+      rectLTY = rectXY[1][0];
+    }
+    if(i==1) {
+      rectRTX = rectXY[0][0];
+      rectRTY = rectXY[1][0];
+    }
+    if(i==2) {
+      rectRDX = rectXY[0][0];
+      rectRDY = rectXY[1][0];
+    }
+    if(i==3) {
+      rectLDX = rectXY[0][0];
+      rectLDY = rectXY[1][0];
+    }       
+  }      
+  context.closePath();    
+  context.beginPath();      
+  HeartXY2 = [
+  [0],
+  [0],
+  [1]
+  ];
+
+  for (var i = 0; i <= 2 * Math.PI; i += 0.01)  {
+    if (i > 3.14) {
+        HeartXY2[0][0] = (16 * Math.sin(i) ** 3) * rectwidth / 33.3;
+        HeartXY2[1][0] = -(13 * Math.cos(i) - 5 * Math.cos(2 * i) - 2 * Math.cos(3 * i) - Math.cos(4 * i)) * rectwidth / 33.3 - 10;
+    } else {
+        HeartXY2[0][0] = (16 * Math.sin(i) ** 3) * rectwidth / 33.3;
+        HeartXY2[1][0] = -(13 * Math.cos(i) - 5 * Math.cos(2 * i) - 2 * Math.cos(3 * i) - Math.cos(4 * i)) * rectwidth / 33.3 - 10;
+    }
+    HeartXY2 = hwMatrixMultiply2(hwScaleMatrix(ScaleX, ScaleY), HeartXY2);
+    HeartXY2 = hwMatrixMultiply2(hwRotationMatrix(Gakdo), HeartXY2);
+    HeartXY2 = hwMatrixMultiply2(hwTranslateMatrix(PositionX, PositionY), HeartXY2);
+    context.lineTo(HeartXY2[0][0], HeartXY2[1][0]);
+}
+    context.fillStyle = "red";
+    context.stroke();
+    context.fill();      
+    context.closePath();
+    
+  
+    anglerectX = ((rectRTX+rectRDX))/2;
+    anglerectY = (rectRTY+rectRDY)/2;
+    anglerectXY = [[anglerectX],[anglerectY],[1]];
+
+    context.fillStyle = "green";
+    context.beginPath();
+    context.arc(anglerectXY[0][0], anglerectXY[1][0], HandleRadius, 0, 2 * Math.PI);
+    context.fill();
+    context.closePath();
+    PosX.value = PositionX;
+    PosY.value = PositionY;
+    Rot.value = Gakdo;
+    ScaX.value = ScaleX;
+    ScaY.value = ScaleY;
+
+      
+    }
+
+
+  canvas.addEventListener("mousedown", function(event) {
+  var mouseX = event.clientX - canvas.getBoundingClientRect().left;
+  var mouseY = event.clientY - canvas.getBoundingClientRect().top;
+
+  if (drawing) {
+    PositionX = event.clientX - canvas.getBoundingClientRect().left;
+    PositionY = event.clientY - canvas.getBoundingClientRect().top;
+    
+    saveCanvasState();
+  }
+  if(isdraw)
+  {
+    
+  if (
+    (mouseX >= anglerectX - HandleRadius && mouseX <= anglerectX + HandleRadius) &&
+    (mouseY >= anglerectY - HandleRadius && mouseY <= anglerectY  + HandleRadius)
+  ) {
+    isDragging = true;
+    clickedHandle = "회전 핸들";
+  }
+   else {
+    isDragging = false;
+    clickedHandle = "";
+  }
+  
+  if (isPointInRect(mouseX, mouseY, [rectLTX, rectLTY, rectRTX, rectRTY, rectRDX, rectRDY, rectLDX, rectLDY])) {
+    isDragging = true;
+    dragOffsetX = mouseX - PositionX;
+    dragOffsetY = mouseY - PositionY;
+  }
+  
+  }
+});
+
+canvas.addEventListener("mousemove", function(event) {
+  if(isdraw)
+  {
+  if (isDragging) {
+    var mouseX = event.clientX - canvas.getBoundingClientRect().left;
+    var mouseY = event.clientY - canvas.getBoundingClientRect().top;
+    
+    if (clickedHandle === "사이즈 핸들") 
+    {
+      if(mouseX<rectLTX) ScaleX = ScaleX + 0.025;
+      else if(mouseX>rectLTX) ScaleX = ScaleX - 0.025;
+      
+      if(mouseY<rectLTY) ScaleY = ScaleY + 0.025;
+      else if(mouseY>rectLTY) ScaleY = ScaleY - 0.025;       
+    }
+
+    else if (clickedHandle === "회전 핸들") 
+    {
+      var mouseX = event.clientX - canvas.getBoundingClientRect().left;
+      var mouseY = event.clientY - canvas.getBoundingClientRect().top;
+
+      Gakdo = Math.atan2(mouseY - PositionY, mouseX - PositionX) / (Math.PI / 180);
+    }
+
+    else 
+    {
+      PositionX = mouseX - dragOffsetX;
+      PositionY = mouseY - dragOffsetY;
+    }
+
+    draw();
+  }
+
+    
+}
+});
+
+canvas.addEventListener("mouseup", function() {
+  if (drawing) {
+    drawing = false; 
+    isdraw = true;
+    
+    draw();
+  }
+  if(isDragging)
+    {
+      saveCanvasState()
+      isDragging = false;
+    }
+});
+
+var canvasStates = [];
+var currentStateIndex = -1;
+
+function saveCanvasState() {
+  var canvasState = {
+    PositionX: PositionX,
+    PositionY: PositionY,
+    ScaleX: ScaleX,
+    ScaleY: ScaleY,
+    Gakdo: Gakdo,
+  };
+
+  if (currentStateIndex < canvasStates.length - 1) {
+    canvasStates.splice(currentStateIndex + 1);
+  }
+
+  canvasStates.push(canvasState);
+  currentStateIndex = canvasStates.length - 1;
+}
+
+function undo() {
+  console.log(currentStateIndex+ "   " + canvasStates.length);
+  if (currentStateIndex > 0) {
+    currentStateIndex--;
+    var prevState = canvasStates[currentStateIndex];
+    restoreCanvasState(prevState);
+  }
+}
+
+function redo() {
+  if (currentStateIndex < canvasStates.length - 1) {
+    currentStateIndex++;
+    var nextState = canvasStates[currentStateIndex];
+    restoreCanvasState(nextState);
+  }
+}
+
+function restoreCanvasState(state) {
+    PositionX = state.PositionX;
+    PositionY = state.PositionY;
+    ScaleX = state.ScaleX;
+    ScaleY = state.ScaleY;
+    Gakdo = state.Gakdo;
+
+  draw();
+}
+
+document.getElementById("draw").addEventListener("click", function() {
+  if(!isdraw)
+  {
+    drawing = true;
+  }
+});
+
+</script>
+</body>
+</html>
